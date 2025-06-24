@@ -50,7 +50,8 @@ Checkpoints and generated GIF samples will be written to `outputs/<timestamp>/`.
 ## Train on OpenXEmbodiment Datasets
 To train on the OpenXEmbodiment datasets we used in the paper:
 ```
-# We'll need tensorflow datasets and tensorflow since this code is based on the original OpenXEmbodiment repo.
+# We'll need tensorflow datasets and tensorflow since this code is 
+# based on the original OpenXEmbodiment repo.
 pip install tensorflow tensorflow_datasets
 # For example, download just the Bridge dataset:
 python download_data.py --dataset_name bridge
