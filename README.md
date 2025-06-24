@@ -39,13 +39,6 @@ pip install diffusers accelerate fire einops pytorchvideo tqdm imageio matplotli
 ---
 
 ## Quick Start
-
-```bash
-python train.py
-```
-
-Multi-GPU training
-
 ```bash
 # Replace N with the number of available GPUs
 torchrun --nproc_per_node=N train.py

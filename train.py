@@ -83,8 +83,7 @@ def main(
     assert torch.cuda.is_available(), "CUDA device required for training"
 
     local_rank, rank, world_size, distributed = init_distributed()
-    if distributed:
-        device = f"cuda:{local_rank}"
+    device = f"cuda:{local_rank}" if distributed else "cuda"
     device = torch.device(device)
     train_dataset = OpenXMP4VideoDataset(
         save_dir=dataset_dir,
