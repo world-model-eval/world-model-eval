@@ -50,7 +50,7 @@ Checkpoints and generated GIF samples will be written to `outputs/<timestamp>/`.
 
 ## Train on OpenXEmbodiment Datasets
 To train on the OpenXEmbodiment datasets we used in the paper:
-```
+```bash
 # We'll need tensorflow datasets and tensorflow since this code is 
 # based on the original OpenXEmbodiment repo.
 pip install tensorflow tensorflow_datasets
@@ -63,7 +63,7 @@ python download_data.py --dataset_name bridge --output_dir <your output dir>
 # See download.data.py for more dataset names to choose from.
 ```
 Then launch training with the correct dataset path:
-```
+```bash
 torchrun --nproc_per_node=N train.py --dataset_dir ./converted_datasets --subset_names bridge
 # Replace ./converted_datasets if your path is different.
 ```
