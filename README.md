@@ -18,10 +18,11 @@ Stanford University<sup>1</sup> &nbsp;&nbsp; New York University<sup>2</sup> &nb
 This repository contains the implementation accompanying the paper [**Evaluating Robot Policies in a World Model**](https://arxiv.org/abs/2506.00613).  
 
 News:
-- 6/11/25: Initial training code release
+- 6/24/25: Dataset download script released
+- 6/11/25: Initial training code released
 
 TODO:
-- [ ] Release dataset preparation scripts
+- [x] Release dataset preparation scripts
 
 ---
 
