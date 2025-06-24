@@ -39,12 +39,33 @@ pip install diffusers accelerate fire einops pytorchvideo tqdm imageio matplotli
 ---
 
 ## Quick Start
+This is how you launch training. It will train on the tiny 10-example dataset in `sample_data/`.
 ```bash
 # Replace N with the number of available GPUs
 torchrun --nproc_per_node=N train.py
 ```
 
 Checkpoints and generated GIF samples will be written to `outputs/<timestamp>/`.
+
+## Train on OpenXEmbodiment Datasets
+To train on the OpenXEmbodiment datasets we used in the paper:
+```
+# We'll need tensorflow datasets and tensorflow since this code is based on the original OpenXEmbodiment repo.
+pip install tensorflow tensorflow_datasets
+# For example, download just the Bridge dataset:
+python download_data.py --dataset_name bridge
+# By default the data will be written to ./converted_datasets.
+# To choose your own output directory:
+python download_data.py --dataset_name bridge --output_dir <your output dir>
+
+# See download.data.py for more dataset names to choose from.
+```
+Then launch training with the correct dataset path:
+```
+torchrun --nproc_per_node=N train.py --dataset_dir ./converted_datasets --subset_names bridge
+# Replace ./converted_datasets if your path is different.
+```
+You can enter a comma separated list for `subset_names` to train on a mixture of multiple datasets. For example, after downloading the `bridge` and `rt_1` datasets, you can do `--subset_names bridge,rt_1` to train on both the Bridge and RT-1 datasets.
 
 ---
 
