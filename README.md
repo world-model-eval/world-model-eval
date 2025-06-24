@@ -60,7 +60,7 @@ python download_data.py --dataset_name bridge
 # To choose your own output directory:
 python download_data.py --dataset_name bridge --output_dir <your output dir>
 
-# See download.data.py for more dataset names to choose from.
+# See download_data.py for more dataset names to choose from.
 ```
 Then launch training with the correct dataset path:
 ```bash
