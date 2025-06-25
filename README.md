@@ -23,6 +23,7 @@ News:
 
 TODO:
 - [x] Release dataset preparation scripts
+- [ ] Release instructions for training on OpenVLA
 
 ---
 
@@ -68,6 +69,13 @@ torchrun --nproc_per_node=N train.py --dataset_dir ./converted_datasets --subset
 # Replace ./converted_datasets if your path is different.
 ```
 You can enter a comma separated list for `subset_names` to train on a mixture of multiple datasets. For example, after downloading the `bridge` and `rt_1` datasets, you can do `--subset_names bridge,rt_1` to train on both the Bridge and RT-1 datasets.
+
+## VLM-based reward labeling
+This script demonstrates how we use GPT-4o to judge the success of generated policy rollouts:
+```bash
+python vlm_reward.py --video_path <path to your .mp4> --task <rollout task instructions>
+```
+
 
 ---
 
