@@ -49,26 +49,34 @@ torchrun --nproc_per_node=N train.py
 
 Checkpoints and generated GIF samples will be written to `outputs/<timestamp>/`.
 
-## Train on OpenXEmbodiment Datasets
-To train on the OpenXEmbodiment datasets we used in the paper:
+## Train on Open X-Embodiment Datasets
+To train on the Open X-Embodiment datasets we used in the paper:
 ```bash
 # We'll need tensorflow datasets and tensorflow since this code is 
-# based on the original OpenXEmbodiment repo.
+# based on the original Open X-Embodiment repo.
 pip install tensorflow tensorflow_datasets
-# For example, download just the Bridge dataset:
-python download_data.py --dataset_name bridge
+# For example, download just the RT-1 dataset:
+python download_data.py --dataset_name rt_1
 # By default the data will be written to ./converted_datasets.
 # To choose your own output directory:
-python download_data.py --dataset_name bridge --output_dir <your output dir>
-
-# See download_data.py for more dataset names to choose from.
+python download_data.py --dataset_name rt_1 --output_dir <your output dir>
 ```
+See `download_data.py` for more dataset names to choose from.
+
+
 Then launch training with the correct dataset path:
 ```bash
-torchrun --nproc_per_node=N train.py --dataset_dir ./converted_datasets --subset_names bridge
+torchrun --nproc_per_node=N train.py --dataset_dir ./converted_datasets --subset_names rt_1
 # Replace ./converted_datasets if your path is different.
 ```
-You can enter a comma separated list for `subset_names` to train on a mixture of multiple datasets. For example, after downloading the `bridge` and `rt_1` datasets, you can do `--subset_names bridge,rt_1` to train on both the Bridge and RT-1 datasets.
+You can enter a comma separated list for `subset_names` to train on a mixture of multiple datasets. For example, after downloading the `rt_1` and `bridge_v2` datasets, you can do `--subset_names rt_1,bridge_v2` to train on both the RT-1 and Bridge V2 datasets.
+
+#### Training on Bridge V2
+Since Bridge V2 was not included in the original Open X-Embodiment dataset, you'll need to first download the TFDS dataset to your machine like this:
+```
+wget -r -np -R "index.html*" https://rail.eecs.berkeley.edu/datasets/bridge_release/data/tfds/bridge_dataset/
+```
+Then, convert the dataset to our format with `python download_data.py --dataset_name bridge_v2`, changing `BRIDGE_V2_PATH` at the top of the script if necessary. Since Bridge V2 is a superset of Bridge V1, choose between either downloading `bridge` or `bridge_v2`.
 
 ## VLM-based reward labeling
 This script demonstrates how we use GPT-4o to judge the success of generated policy rollouts:

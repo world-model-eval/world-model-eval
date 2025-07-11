@@ -54,26 +54,26 @@ def main(
     dataset_dir: Path = Path("sample_data"),
     checkpoint_dir: Path | None = None,
     # Dataset
-    input_h: int = 128,
-    input_w: int = 128,
-    n_frames: int = 4,
+    input_h: int = 256,
+    input_w: int = 256,
+    n_frames: int = 10,
     frame_skip: int = 1,
     subset_names: str = "bridge",
     action_dim: int = 10,
-    num_workers: int = 4,
+    num_workers: int = 16,
     # Training
-    batch_size: int = 128,
+    batch_size: int = 4,
     timesteps: int = 1_000,
-    lr: float = 1e-5,
+    lr: float = 8e-5,
     ema_decay: float = 0.999,
-    max_train_steps: int = 100_000,
+    max_train_steps: int = 500_000,
     # Architecture
     patch_size: int = 2,
-    model_dim: int = 384,
-    layers: int = 6,
-    heads: int = 6,
+    model_dim: int = 1024,
+    layers: int = 16,
+    heads: int = 16,
     # Logging
-    validate_every: int = 1_000,
+    validate_every: int = 20_000,
     log_every: int = 100,
     # Sampling
     sampling_timesteps: int = 10,
@@ -160,7 +160,7 @@ def main(
     requires_grad(ema, False)
     update_ema(ema, model_no_ddp, ema_decay)
 
-    optimizer = optim.AdamW(model.parameters(), lr=lr)
+    optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=0.02, betas=(0.9, 0.99))
 
     if checkpoint_dir is None:
         run_name = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
