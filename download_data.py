@@ -17,6 +17,7 @@ import functools
 import torch
 from torchvision.io import write_video
 
+BRIDGE_V2_PATH = "rail.eecs.berkeley.edu/datasets/bridge_release/data/tfds/bridge_dataset/1.0.0/"
 
 def map_observation(
     to_step: Dict[str, Any],
@@ -393,7 +394,7 @@ def get_dataset_configs(dataset_home: str) -> Dict[str, Dict[str, Any]]:
             ),
         },
         "bridge_v2": {
-            "builder_dir": "/matx/u/quevedo/tfds/bridge_dataset/1.0.0",
+            "builder_dir": BRIDGE_V2_PATH,
             "step_map_fn": functools.partial(
                 step_map_fn,
                 map_observation=bridge_v2_map_observation,
