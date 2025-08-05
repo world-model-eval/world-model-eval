@@ -12,6 +12,11 @@
 
 Stanford University<sup>1</sup> &nbsp;&nbsp; New York University<sup>2</sup> &nbsp;&nbsp; Google DeepMind<sup>3</sup>
 
+---
+
+### New: [Policy Rollout Notebook](robot_evaluation.ipynb)
+
+---
 
 ## Overview
 
@@ -23,7 +28,6 @@ News:
 
 TODO:
 - [x] Release dataset preparation scripts
-- [ ] Release instructions for training on OpenVLA
 
 ---
 
