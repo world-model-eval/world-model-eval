@@ -8,7 +8,7 @@ from diffusion import Diffusion
 
 
 class WorldModel:
-    def __init__(self):
+    def __init__(self, checkpoint_path: str = "bridge_v2_ckpt.pt"):
         self.device = "cuda:0"
         self.model = (
             DiT(
@@ -23,7 +23,7 @@ class WorldModel:
             .to(self.device)
             .eval()
         )
-        state_dict = torch.load("bridge_v2_ckpt.pt", weights_only=False)
+        state_dict = torch.load(checkpoint_path, weights_only=True)
         self.model.load_state_dict(state_dict, strict=True)
         self.vae = VAE().to(self.device).eval()
 
