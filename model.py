@@ -4,8 +4,13 @@ import torch.nn.functional as F
 import einops
 import math
 from functools import lru_cache
-from enum import Enum
+from enum import StrEnum
 from typing import Sequence
+
+
+class AttentionType(StrEnum):
+    SPATIAL = "spatial"
+    TEMPORAL = "temporal"
 
 
 @lru_cache
@@ -13,19 +18,33 @@ def rope_nd(
     shape: Sequence[int],
     dim: int = 64,
     base: float = 10_000.0,
+    attention_type: AttentionType = AttentionType.TEMPORAL,
     *,
     dtype: torch.dtype = torch.float32,
     device: torch.device | None = None,
 ) -> torch.Tensor:
     D = len(shape)
-    assert dim % (2 * D) == 0, f"`dim` must be divisible by 2 × D (got dim={dim}, D={D})"
+    assert dim % (2 * D) == 0, (
+        f"`dim` must be divisible by 2 × D (got dim={dim}, D={D})"
+    )
 
     dim_per_axis = dim // D
     half = dim_per_axis // 2
+    if attention_type == AttentionType.TEMPORAL:
+        inv_freq = 1.0 / (
+            base ** (torch.arange(half, device=device, dtype=dtype) / half)
+        )
+        coords = [torch.arange(n, device=device, dtype=dtype) for n in shape]
+    elif attention_type == AttentionType.SPATIAL:
+        inv_freq = (
+            torch.linspace(1.0, 256.0 / 2, half, device=device, dtype=dtype) * math.pi
+        )
+        coords = [
+            torch.linspace(-1, +1, steps=n, device=device, dtype=dtype) for n in shape
+        ]
+    else:
+        raise NotImplementedError(f"invalid attention type: {attention_type}")
 
-    inv_freq = 1.0 / (base ** (torch.arange(half, device=device, dtype=dtype) / half))
-
-    coords = [torch.arange(n, device=device, dtype=dtype) for n in shape]
     mesh = torch.meshgrid(*coords, indexing="ij")
 
     embeddings = []
@@ -49,12 +68,21 @@ def rope_mix(x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Ten
 
 
 def apply_rope_nd(
-    q: torch.Tensor, k: torch.Tensor, shape: tuple[int, ...], *, base: float = 10_000.0
+    q: torch.Tensor,
+    k: torch.Tensor,
+    shape: tuple[int, ...],
+    attention_type: AttentionType,
+    *,
+    base: float = 10_000.0,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     dim = q.shape[-1]
-    rope = rope_nd(shape, dim, base, dtype=q.dtype, device=q.device)
-    rope = rope.view(*shape, -1, 2)
-    cos, sin = rope.unbind(-1)
+    rope = rope_nd(
+        shape, dim, base, attention_type=attention_type, dtype=q.dtype, device=q.device
+    )
+    rope = rope.view(*shape, len(shape), 2, -1)
+    cos, sin = rope.unbind(-2)
+    cos = cos.reshape(*shape, -1)
+    sin = sin.reshape(*shape, -1)
 
     q_rot = rope_mix(q, cos, sin)
     k_rot = rope_mix(k, cos, sin)
@@ -66,7 +94,9 @@ class FinalLayer(nn.Module):
         super().__init__()
         self.norm = nn.LayerNorm(dim, elementwise_affine=False, eps=1e-6)
         self.linear = nn.Linear(dim, patch_size * patch_size * out_channels, bias=True)
-        self.adaLN_modulation = nn.Sequential(nn.SiLU(), nn.Linear(dim, dim * 2, bias=True))
+        self.adaLN_modulation = nn.Sequential(
+            nn.SiLU(), nn.Linear(dim, dim * 2, bias=True)
+        )
 
     def forward(self, x: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
         _, _, H, W, _ = x.shape
@@ -77,10 +107,6 @@ class FinalLayer(nn.Module):
 
 
 class Attention(nn.Module):
-    class AttentionType(Enum):
-        SPATIAL = "spatial"
-        TEMPORAL = "temporal"
-
     def __init__(
         self,
         dim: int,
@@ -100,10 +126,12 @@ class Attention(nn.Module):
     def forward(self, x: torch.Tensor):
         B, T, H, W, D = x.shape
 
-        if self.attention_type == self.AttentionType.SPATIAL:
+        if self.attention_type == AttentionType.SPATIAL:
             x = einops.rearrange(x, "b t h w d -> (b t) h w d")
-        elif self.attention_type == self.AttentionType.TEMPORAL:
+        elif self.attention_type == AttentionType.TEMPORAL:
             x = einops.rearrange(x, "b t h w d -> (b h w) t d")
+        else:
+            raise NotImplementedError(f"invalid attention type: {self.attention_type}")
         sequence_shape = x.shape[1:-1]
 
         q, k, v = self.qkv_proj(x).chunk(3, dim=-1)
@@ -111,7 +139,7 @@ class Attention(nn.Module):
         k = einops.rearrange(k, "B ... (head d) -> B head ... d", head=self.num_heads)
         v = einops.rearrange(v, "B ... (head d) -> B head ... d", head=self.num_heads)
 
-        q, k = apply_rope_nd(q, k, sequence_shape)
+        q, k = apply_rope_nd(q, k, sequence_shape, attention_type=self.attention_type)
         # Flatten the sequence dimension
         q = einops.rearrange(q, "B head ... d -> B head (...) d")
         k = einops.rearrange(k, "B head ... d -> B head (...) d")
@@ -121,9 +149,9 @@ class Attention(nn.Module):
         x = einops.rearrange(x, "B head seq d -> B seq (head d)")
         x = self.out_proj(x)
 
-        if self.attention_type == self.AttentionType.SPATIAL:
+        if self.attention_type == AttentionType.SPATIAL:
             x = einops.rearrange(x, "(b t) (h w) d -> b t h w d", t=T, h=H, w=W)
-        elif self.attention_type == self.AttentionType.TEMPORAL:
+        elif self.attention_type == AttentionType.TEMPORAL:
             x = einops.rearrange(x, "(b h w) t d -> b t h w d", h=H, w=W)
         return x
 
@@ -133,14 +161,18 @@ class DiTBlock(nn.Module):
         self,
         dim: int,
         num_heads: int,
-        attention_type: Attention.AttentionType,
+        attention_type: AttentionType,
         is_causal: bool,
     ) -> None:
         super().__init__()
-        self.adaLN_modulation = nn.Sequential(nn.SiLU(), nn.Linear(dim, dim * 6, bias=True))
+        self.adaLN_modulation = nn.Sequential(
+            nn.SiLU(), nn.Linear(dim, dim * 6, bias=True)
+        )
         self.norm1 = nn.LayerNorm(dim, elementwise_affine=False, eps=1e-6)
         self.norm2 = nn.LayerNorm(dim, elementwise_affine=False, eps=1e-6)
-        self.attn = Attention(dim, num_heads, attention_type=attention_type, is_causal=is_causal)
+        self.attn = Attention(
+            dim, num_heads, attention_type=attention_type, is_causal=is_causal
+        )
         self.ffwd = nn.Sequential(
             nn.Linear(dim, dim * 4),
             nn.GELU(approximate="tanh"),
@@ -162,13 +194,13 @@ class Block(nn.Module):
         self.s_block = DiTBlock(
             dim,
             num_heads,
-            attention_type=Attention.AttentionType.SPATIAL,
+            attention_type=AttentionType.SPATIAL,
             is_causal=False,
         )
         self.t_block = DiTBlock(
             dim,
             num_heads,
-            attention_type=Attention.AttentionType.TEMPORAL,
+            attention_type=AttentionType.TEMPORAL,
             is_causal=True,
         )
 
@@ -192,7 +224,10 @@ class DiT(nn.Module):
         super().__init__()
         self.in_channels = in_channels
         self.patch_size = patch_size
-        self.x_proj = nn.Conv2d(in_channels, dim, kernel_size=patch_size, stride=patch_size)
+        self.action_dim = action_dim
+        self.x_proj = nn.Conv2d(
+            in_channels, dim, kernel_size=patch_size, stride=patch_size
+        )
         self.timestep_mlp = nn.Sequential(
             nn.Linear(256, dim, bias=True),
             nn.SiLU(),
@@ -204,16 +239,22 @@ class DiT(nn.Module):
         self.max_frames = max_frames
         self.initialize_weights()
 
-    def timestep_embedding(self, t: torch.Tensor, dim: int = 256, max_period: int = 10000) -> torch.Tensor:
+    def timestep_embedding(
+        self, t: torch.Tensor, dim: int = 256, max_period: int = 10000
+    ) -> torch.Tensor:
         # https://github.com/openai/glide-text2im/blob/main/glide_text2im/nn.py
         half = dim // 2
         freqs = torch.exp(
-            -math.log(max_period) * torch.arange(start=0, end=half, dtype=torch.float32, device=t.device) / half
-        ).float()
-        args = torch.einsum("t,f -> tf", t.float(), freqs)
+            -math.log(max_period)
+            * torch.arange(start=0, end=half, dtype=torch.float32, device=t.device)
+            / half
+        )
+        args = t[:, None].float() * freqs[None]
         embedding = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
         if dim % 2:
-            embedding = torch.cat([embedding, torch.zeros_like(embedding[:, :1])], dim=-1)
+            embedding = torch.cat(
+                [embedding, torch.zeros_like(embedding[:, :1])], dim=-1
+            )
         return embedding
 
     def initialize_weights(self) -> None:
@@ -273,7 +314,9 @@ class DiT(nn.Module):
         c += self.action_embedder(action)
         return c
 
-    def forward(self, x: torch.Tensor, t: torch.Tensor, action: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, t: torch.Tensor, action: torch.Tensor
+    ) -> torch.Tensor:
         B, T, H, W, C = x.shape
         x = self.patchify(x)
         c = self.get_cond(t, action)
