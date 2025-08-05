@@ -16,6 +16,8 @@ Stanford University<sup>1</sup> &nbsp;&nbsp; New York University<sup>2</sup> &nb
 
 ### New: [Policy Rollout Notebook](robot_evaluation.ipynb)
 
+You can use this notebook to rollout OpenVLA in the Bridge environment.
+
 ---
 
 ## Overview
