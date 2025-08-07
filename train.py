@@ -180,7 +180,7 @@ def main(
 
     if rank == 0:
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
-    summary_writer = SummaryWriter(checkpoint_dir)
+        summary_writer = SummaryWriter(checkpoint_dir)
 
     # resume from latest checkpoint if available
     ckpts = sorted(checkpoint_dir.glob("ckpt_*.pt"))
@@ -256,7 +256,7 @@ def main(
             running_loss.zero_()
             num_batches = 0
 
-        if train_steps == 0 or train_steps % validate_every == 0 and rank == 0:
+        if (train_steps == 0 or train_steps % validate_every == 0) and rank == 0:
             model.eval()
             with torch.no_grad():
                 try:
