@@ -6,6 +6,7 @@ import datetime
 import logging
 from copy import deepcopy
 from collections import OrderedDict
+import numpy as np
 import torch
 from torch import optim
 import torch.nn.functional as F
@@ -17,6 +18,7 @@ from dataset import OpenXMP4VideoDataset
 from model import DiT
 from vae import VAE
 from diffusion import Diffusion
+from tensorboardX import SummaryWriter
 
 
 @torch.no_grad()
@@ -178,6 +180,7 @@ def main(
 
     if rank == 0:
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    summary_writer = SummaryWriter(checkpoint_dir)
 
     # resume from latest checkpoint if available
     ckpts = sorted(checkpoint_dir.glob("ckpt_*.pt"))
@@ -236,6 +239,7 @@ def main(
 
             if rank == 0:
                 loss_history.append(avg_loss_cpu)
+                summary_writer.add_scalar("train/loss", avg_loss_cpu, train_steps)
                 if pbar is not None:
                     pbar.set_postfix({"loss": avg_loss_cpu.item()})
                 plt.figure()
@@ -277,8 +281,9 @@ def main(
                         cfg=cfg,
                     )
                     samples = vae.decode(samples)
-                mse = F.mse_loss(samples, val_x)
-                mse_history.append(mse.detach().cpu())
+                mse = F.mse_loss(samples, val_x).detach().cpu()
+                summary_writer.add_scalar("val/mse", mse, train_steps)
+                mse_history.append(mse)
                 plt.figure()
                 plt.plot(
                     [i * validate_every for i in range(len(mse_history))],
@@ -290,10 +295,14 @@ def main(
                 plt.savefig(checkpoint_dir / "mse.png")
                 plt.close()
 
-            video_np = (samples[0].float().clamp(0, 1) * 255).byte().cpu().numpy()
+            video_np = samples.float().clamp(0, 1).cpu().numpy()
+            gt_np = val_x.float().clamp(0, 1).cpu().numpy()
+            summary_writer.add_video(f"val/generation_cfg{cfg}", video_np, train_steps, dataformats="NTHWC")
+            summary_writer.add_video("val/gt", gt_np, train_steps, dataformats="NTHWC")
+            summary_writer.flush()
             step_str = f"{train_steps:09d}"
             video_path = checkpoint_dir / f"gen_{step_str}.gif"
-            imageio.mimsave(video_path, video_np, fps=8)
+            imageio.mimsave(video_path, (video_np[0] * 255).astype(np.uint8), fps=8)
             torch.save(
                 {
                     "model": model_no_ddp.state_dict(),
