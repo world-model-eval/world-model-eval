@@ -173,3 +173,82 @@ class Diffusion(nn.Module):
             pbar.update(horizon)
 
         return x_pred
+
+
+class FlowMatching(nn.Module):
+    def __init__(
+        self,
+        timesteps: int = 1_000,
+        sampling_timesteps: int = 10,
+        *,
+        device: torch.device | str | None = None,
+    ) -> None:
+        super().__init__()
+
+        self.timesteps = timesteps
+        self.sampling_timesteps = sampling_timesteps
+        self.stabilization_level = 0.01
+        self.device = torch.device(device) if device is not None else torch.device("cpu")
+
+    def loss_fn(self, model: nn.Module, x: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
+        B, T, H, W, C = x.shape
+
+        t = torch.sigmoid(torch.randn((B, T), dtype=x.dtype, device=self.device))
+        x_1 = torch.randn_like(x)
+        x_t = torch.lerp(x, x_1, t.view(B, T, 1, 1, 1))
+        v_t = model(x_t, t * self.timesteps, actions)
+
+        loss = F.mse_loss(v_t, x_1 - x)
+        return loss
+
+    def generate(
+        self,
+        model: nn.Module,
+        x: torch.Tensor,
+        actions: torch.Tensor,
+        n_context_frames: int = 1,
+        n_frames: int = 1,
+        horizon: int = 1,
+        window_len: int | None = None,
+        cfg: float = 0.0,
+    ) -> torch.Tensor:
+        assert horizon == 1
+        assert window_len is None
+
+        B, T, H, W, C = x.shape
+        curr_frame = 0
+        x_pred = x[:, :n_context_frames]
+        curr_frame += n_context_frames
+
+        schedule = torch.linspace(1.0, 0.0, self.sampling_timesteps + 1, dtype=x.dtype, device=self.device)
+
+        pbar = tqdm(total=n_frames, initial=curr_frame, desc="Sampling")
+        while curr_frame < n_frames:
+            chunk = torch.randn((B, 1, *x.shape[-3:]), device=self.device)
+            x_pred = torch.cat([x_pred, chunk], dim=1)
+            # Adjust context length
+            start_frame = max(0, curr_frame + 1 - model.max_frames)
+
+            pbar.set_postfix(
+                {
+                    "start": start_frame,
+                    "end": curr_frame + 1,
+                }
+            )
+
+            t = torch.full((B, curr_frame), self.stabilization_level, dtype=x.dtype, device=self.device)
+            for i in range(self.sampling_timesteps):
+                t_curr, t_next = schedule[i], schedule[i + 1]
+                dt = t_curr - t_next
+                # predict the velocity
+                t_curr = torch.cat([t, einops.repeat(t_curr, " -> b 1", b=B)], dim=1)
+                v_cond = model(x_pred[:, start_frame:], t_curr[:, start_frame:] * self.timesteps, actions[:, start_frame:curr_frame+1])
+                v_null = model(x_pred[:, start_frame:], t_curr[:, start_frame:] * self.timesteps, model.get_null_cond(actions)[:, start_frame:curr_frame+1])
+                v_pred = (1 - cfg) * v_null + cfg * v_cond
+                # take a step in the backwards velocity direction
+                x_pred[:, -1:] -= dt * v_pred[:, -1:]
+
+            curr_frame += 1
+            pbar.update(1)
+
+        return x_pred

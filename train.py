@@ -1,4 +1,5 @@
 import fire
+from typing import Literal
 from pathlib import Path
 import imageio
 import os
@@ -17,7 +18,7 @@ import torch.distributed as dist
 from dataset import OpenXMP4VideoDataset
 from model import DiT
 from vae import VAE
-from diffusion import Diffusion
+from diffusion import Diffusion, FlowMatching
 from tensorboardX import SummaryWriter
 
 
@@ -70,6 +71,7 @@ def main(
     ema_decay: float = 0.999,
     max_train_steps: int = 500_000,
     action_dropout_prob: float = 0.0,
+    objective: Literal["ddpm", "flow_matching"] = "ddpm",
     # Architecture
     patch_size: int = 2,
     model_dim: int = 1024,
@@ -148,11 +150,20 @@ def main(
         action_dropout_prob=action_dropout_prob,
     ).to(device)
 
-    diffusion = Diffusion(
-        timesteps=timesteps,
-        sampling_timesteps=sampling_timesteps,
-        device=device,
-    ).to(device)
+    if objective == "ddpm":
+        diffusion = Diffusion(
+            timesteps=timesteps,
+            sampling_timesteps=sampling_timesteps,
+            device=device,
+        ).to(device)
+    elif objective == "flow_matching":
+        diffusion = FlowMatching(
+            timesteps=timesteps,
+            sampling_timesteps=sampling_timesteps,
+            device=device,
+        ).to(device)
+    else:
+        raise NotImplementedError("invalid training objective: {objective}")
 
     if distributed:
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[local_rank], output_device=local_rank)
