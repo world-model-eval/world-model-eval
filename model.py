@@ -3,7 +3,7 @@ from torch import nn
 import torch.nn.functional as F
 import einops
 import math
-from functools import lru_cache
+import functools
 from enum import StrEnum
 from typing import Sequence
 
@@ -13,12 +13,17 @@ class AttentionType(StrEnum):
     TEMPORAL = "temporal"
 
 
-@lru_cache
+class RotaryType(StrEnum):
+    STANDARD = "standard"
+    PIXEL = "pixel"
+
+
+@functools.lru_cache
 def rope_nd(
     shape: Sequence[int],
     dim: int = 64,
     base: float = 10_000.0,
-    attention_type: AttentionType = AttentionType.TEMPORAL,
+    rotary_type: RotaryType = RotaryType.STANDARD,
     *,
     dtype: torch.dtype = torch.float32,
     device: torch.device | None = None,
@@ -30,12 +35,12 @@ def rope_nd(
 
     dim_per_axis = dim // D
     half = dim_per_axis // 2
-    if attention_type == AttentionType.TEMPORAL:
+    if rotary_type == RotaryType.STANDARD:
         inv_freq = 1.0 / (
             base ** (torch.arange(half, device=device, dtype=dtype) / half)
         )
         coords = [torch.arange(n, device=device, dtype=dtype) for n in shape]
-    elif attention_type == AttentionType.SPATIAL:
+    elif rotary_type == RotaryType.PIXEL:
         inv_freq = (
             torch.linspace(1.0, 256.0 / 2, half, device=device, dtype=dtype) * math.pi
         )
@@ -43,7 +48,7 @@ def rope_nd(
             torch.linspace(-1, +1, steps=n, device=device, dtype=dtype) for n in shape
         ]
     else:
-        raise NotImplementedError(f"invalid attention type: {attention_type}")
+        raise NotImplementedError(f"invalid rotary type: {rotary_type}")
 
     mesh = torch.meshgrid(*coords, indexing="ij")
 
@@ -71,13 +76,13 @@ def apply_rope_nd(
     q: torch.Tensor,
     k: torch.Tensor,
     shape: tuple[int, ...],
-    attention_type: AttentionType,
+    rotary_type: RotaryType,
     *,
     base: float = 10_000.0,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     dim = q.shape[-1]
     rope = rope_nd(
-        shape, dim, base, attention_type=attention_type, dtype=q.dtype, device=q.device
+        shape, dim, base, rotary_type=rotary_type, dtype=q.dtype, device=q.device
     )
     rope = rope.view(*shape, len(shape), 2, -1)
     cos, sin = rope.unbind(-2)
@@ -113,13 +118,15 @@ class Attention(nn.Module):
         num_heads: int,
         is_causal: bool,
         attention_type: AttentionType,
+        rotary_type: RotaryType = RotaryType.STANDARD,
     ) -> None:
         super().__init__()
         assert dim % num_heads == 0
         self.num_heads = num_heads
         self.dim = dim
-        self.attention_type = attention_type
         self.is_causal = is_causal
+        self.attention_type = attention_type
+        self.rotary_type = rotary_type
         self.qkv_proj = nn.Linear(dim, dim * 3, bias=False)
         self.out_proj = nn.Linear(dim, dim)
 
@@ -139,7 +146,7 @@ class Attention(nn.Module):
         k = einops.rearrange(k, "B ... (head d) -> B head ... d", head=self.num_heads)
         v = einops.rearrange(v, "B ... (head d) -> B head ... d", head=self.num_heads)
 
-        q, k = apply_rope_nd(q, k, sequence_shape, attention_type=self.attention_type)
+        q, k = apply_rope_nd(q, k, sequence_shape, rotary_type=self.rotary_type)
         # Flatten the sequence dimension
         q = einops.rearrange(q, "B head ... d -> B head (...) d")
         k = einops.rearrange(k, "B head ... d -> B head (...) d")
@@ -162,6 +169,7 @@ class DiTBlock(nn.Module):
         dim: int,
         num_heads: int,
         attention_type: AttentionType,
+        rotary_type: RotaryType,
         is_causal: bool,
     ) -> None:
         super().__init__()
@@ -171,7 +179,11 @@ class DiTBlock(nn.Module):
         self.norm1 = nn.LayerNorm(dim, elementwise_affine=False, eps=1e-6)
         self.norm2 = nn.LayerNorm(dim, elementwise_affine=False, eps=1e-6)
         self.attn = Attention(
-            dim, num_heads, attention_type=attention_type, is_causal=is_causal
+            dim,
+            num_heads,
+            is_causal=is_causal,
+            attention_type=attention_type,
+            rotary_type=rotary_type,
         )
         self.ffwd = nn.Sequential(
             nn.Linear(dim, dim * 4),
@@ -189,19 +201,30 @@ class DiTBlock(nn.Module):
 
 
 class Block(nn.Module):
-    def __init__(self, dim: int, num_heads: int) -> None:
+    def __init__(
+        self,
+        dim: int,
+        num_heads: int,
+        rope_config: dict[AttentionType, RotaryType] | None = None,
+    ) -> None:
         super().__init__()
         self.s_block = DiTBlock(
             dim,
             num_heads,
-            attention_type=AttentionType.SPATIAL,
             is_causal=False,
+            attention_type=AttentionType.SPATIAL,
+            rotary_type=rope_config[AttentionType.SPATIAL]
+            if rope_config
+            else RotaryType.STANDARD,
         )
         self.t_block = DiTBlock(
             dim,
             num_heads,
-            attention_type=AttentionType.TEMPORAL,
             is_causal=True,
+            attention_type=AttentionType.TEMPORAL,
+            rotary_type=rope_config[AttentionType.TEMPORAL]
+            if rope_config
+            else RotaryType.STANDARD,
         )
 
     def forward(self, x: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
@@ -220,6 +243,7 @@ class DiT(nn.Module):
         num_heads: int = 16,
         action_dim: int = 0,
         max_frames: int = 16,
+        rope_config: dict[AttentionType, RotaryType] | None = None,
     ) -> None:
         super().__init__()
         self.in_channels = in_channels
@@ -234,7 +258,9 @@ class DiT(nn.Module):
             nn.Linear(dim, dim, bias=True),
         )
         self.action_embedder = nn.Linear(action_dim, dim)
-        self.blocks = nn.ModuleList([Block(dim, num_heads) for _ in range(num_layers)])
+        self.blocks = nn.ModuleList(
+            [Block(dim, num_heads, rope_config) for _ in range(num_layers)]
+        )
         self.final_layer = FinalLayer(dim, patch_size, in_channels)
         self.max_frames = max_frames
         self.initialize_weights()

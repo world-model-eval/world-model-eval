@@ -2,7 +2,7 @@ from tqdm import tqdm
 import torch
 import numpy as np
 import einops
-from model import DiT
+from model import DiT, AttentionType, RotaryType
 from vae import VAE
 from diffusion import Diffusion
 
@@ -19,6 +19,10 @@ class WorldModel:
                 num_heads=16,
                 action_dim=10,
                 max_frames=20,
+                rope_config={
+                    AttentionType.SPATIAL: RotaryType.PIXEL,
+                    AttentionType.TEMPORAL: RotaryType.STANDARD,
+                },
             )
             .to(self.device)
             .eval()
