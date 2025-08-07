@@ -64,9 +64,10 @@ def main(
     # Training
     batch_size: int = 4,
     timesteps: int = 1_000,
-    lr: float = 8e-5,
+    lr: float = 3e-5,
     ema_decay: float = 0.999,
     max_train_steps: int = 500_000,
+    action_dropout_prob: float = 0.0,
     # Architecture
     patch_size: int = 2,
     model_dim: int = 1024,
@@ -79,6 +80,7 @@ def main(
     sampling_timesteps: int = 10,
     window_len: int | None = None,
     horizon: int = 1,
+    cfg: float = 0.0,
 ) -> None:
     assert torch.cuda.is_available(), "CUDA device required for training"
 
@@ -141,6 +143,7 @@ def main(
         num_heads=heads,
         action_dim=action_dim,
         max_frames=n_frames,
+        action_dropout_prob=action_dropout_prob,
     ).to(device)
 
     diffusion = Diffusion(
@@ -271,6 +274,7 @@ def main(
                         n_frames=val_latent.shape[1],
                         window_len=window_len,
                         horizon=horizon,
+                        cfg=cfg,
                     )
                     samples = vae.decode(samples)
                 mse = F.mse_loss(samples, val_x)

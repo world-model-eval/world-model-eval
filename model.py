@@ -244,11 +244,13 @@ class DiT(nn.Module):
         action_dim: int = 0,
         max_frames: int = 16,
         rope_config: dict[AttentionType, RotaryType] | None = None,
+        action_dropout_prob: float = 0.1,
     ) -> None:
         super().__init__()
         self.in_channels = in_channels
         self.patch_size = patch_size
         self.action_dim = action_dim
+        self.action_dropout_prob = action_dropout_prob
         self.x_proj = nn.Conv2d(
             in_channels, dim, kernel_size=patch_size, stride=patch_size
         )
@@ -331,12 +333,23 @@ class DiT(nn.Module):
             c=self.in_channels,
         )
 
+    def get_null_cond(self, action: torch.Tensor) -> torch.Tensor:
+        null_action = torch.zeros_like(action)
+        # NOTE: all-zero action is still conditional (meaning "do not move"), so we
+        # need to reserve the last component of the action vector to indicate null.
+        null_action[..., -1] = 1
+        return null_action
+
     def get_cond(self, t: torch.Tensor, action: torch.Tensor) -> torch.Tensor:
-        T = t.shape[1]
+        B, T = t.shape
         t = einops.rearrange(t, "b t -> (b t)")
         t_freq = self.timestep_embedding(t)
         c = self.timestep_mlp(t_freq)
         c = einops.rearrange(c, "(b t) d -> b t d", t=T)
+        if self.training and self.action_dropout_prob > 0:
+            should_drop = torch.rand((B, 1, 1), device=action.device) < self.action_dropout_prob
+            null_action = self.get_null_cond(action)
+            action = torch.where(should_drop, null_action, action)
         c += self.action_embedder(action)
         return c
 

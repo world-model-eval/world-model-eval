@@ -65,6 +65,7 @@ class Diffusion(nn.Module):
         actions: torch.Tensor,
         t_idx: torch.Tensor,
         t_next_idx: torch.Tensor,
+        cfg: float = 0.0,
     ) -> torch.Tensor:
         # Derived from
         # https://github.com/buoyancy99/diffusion-forcing/blob/475e0bcab87545e48b24b39fb46a81fe59d80594/algorithms/diffusion_forcing/models/diffusion.py#L383
@@ -95,7 +96,10 @@ class Diffusion(nn.Module):
         ).view(B, T, 1, 1, 1)
         c = (1 - alphas_next_cumprod).sqrt()
 
-        v_pred = model(x, clipped_t, actions)
+        v_pred_cond = model(x, clipped_t, actions)
+        v_pred_null = model(x, clipped_t, model.get_null_cond(actions))
+        v_pred = (1 - cfg) * v_pred_null + cfg * v_pred_cond
+
         x_start = alphas_cumprod.sqrt() * x - (1 - alphas_cumprod).sqrt() * v_pred
         pred_noise = ((1 / alphas_cumprod).sqrt() * x - x_start) / ((1 / alphas_cumprod) - 1).sqrt()
         x_pred = alphas_next_cumprod.sqrt() * x_start + c * pred_noise
@@ -123,6 +127,7 @@ class Diffusion(nn.Module):
         n_frames: int = 1,
         horizon: int = 1,
         window_len: int | None = None,
+        cfg: float = 0.0,
     ) -> torch.Tensor:
         B, T, H, W, C = x.shape
         curr_frame = 0
@@ -161,6 +166,7 @@ class Diffusion(nn.Module):
                     actions[:, start_frame : curr_frame + horizon],
                     t[:, start_frame:],
                     t_next[:, start_frame:],
+                    cfg=cfg,
                 )
 
             curr_frame += horizon
