@@ -65,7 +65,7 @@ class Diffusion(nn.Module):
         actions: torch.Tensor,
         t_idx: torch.Tensor,
         t_next_idx: torch.Tensor,
-        cfg: float = 0.0,
+        cfg: float = 1.0,
     ) -> torch.Tensor:
         # Derived from
         # https://github.com/buoyancy99/diffusion-forcing/blob/475e0bcab87545e48b24b39fb46a81fe59d80594/algorithms/diffusion_forcing/models/diffusion.py#L383
