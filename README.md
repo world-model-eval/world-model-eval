@@ -41,7 +41,7 @@ pip install --upgrade pip
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
 
 # Install other dependencies
-pip install transformers diffusers accelerate fire einops pytorchvideo tqdm imageio matplotlib gdown openai
+pip install transformers diffusers accelerate fire einops pytorchvideo tqdm imageio matplotlib gdown openai bs4
 ```
 
 ---
