@@ -20,6 +20,7 @@ from model import DiT
 from vae import VAE
 from diffusion import Diffusion, FlowMatching
 from tensorboardX import SummaryWriter
+import os
 
 
 @torch.no_grad()
@@ -324,6 +325,11 @@ def main(
                 checkpoint_dir / f"ckpt_{step_str}.pt",
             )
             model.train()
+
+            ckpts = sorted(checkpoint_dir.glob("ckpt_*.pt"))
+            for ckpt_path in ckpts[:-5]:
+                print(f"Removing {ckpt_path=}")
+                os.remove(ckpt_path)
 
         train_steps += 1
         if pbar is not None:
