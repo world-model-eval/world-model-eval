@@ -8,7 +8,7 @@ from diffusion import Diffusion
 
 
 class WorldModel:
-    def __init__(self, checkpoint_path: str = "bridge_v2_ckpt.pt"):
+    def __init__(self, checkpoint_path: str, use_pixel_rope: bool = False, default_cfg: float = 1.0):
         self.device = "cuda:0"
         self.model = (
             DiT(
@@ -20,7 +20,7 @@ class WorldModel:
                 action_dim=10,
                 max_frames=20,
                 rope_config={
-                    AttentionType.SPATIAL: RotaryType.PIXEL,
+                    AttentionType.SPATIAL: RotaryType.PIXEL if use_pixel_rope else RotaryType.STANDARD,
                     AttentionType.TEMPORAL: RotaryType.STANDARD,
                 },
             )
@@ -28,6 +28,8 @@ class WorldModel:
             .eval()
         )
         state_dict = torch.load(checkpoint_path, weights_only=True)
+        if "ema" in state_dict:
+            state_dict = state_dict["ema"]
         self.model.load_state_dict(state_dict, strict=True)
         self.vae = VAE().to(self.device).eval()
 
@@ -37,6 +39,7 @@ class WorldModel:
         self.chunk_size = 1
         self.actions = None
         self.curr_frame = 0
+        self.cfg = default_cfg  # Feel free to override this after __init__
 
     def reset(self, x):
         x = einops.repeat(x, "h w c -> b t h w c", b=1, t=1)
@@ -86,6 +89,7 @@ class WorldModel:
                     self.actions[:, start_frame : self.curr_frame + self.chunk_size],
                     t[:, start_frame:],
                     t_next[:, start_frame:],
+                    cfg=self.cfg,
                 )
 
                 latest_clean_idx = (t_next == 0).nonzero()[-1][1]
